@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"strconv"
-	"text/template"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -14,6 +14,11 @@ type Note struct {
 	Title       string
 	Description string
 	CreateOn    time.Time
+}
+
+type EditNote struct {
+	Note
+	Id string
 }
 
 var noteStore = make(map[string]Note)
@@ -65,16 +70,62 @@ func saveNote(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/", 302)
 }
 
+func editNote(rw http.ResponseWriter, r *http.Request) {
+	var model EditNote
+	vars := mux.Vars(r)
+	k := vars["id"]
+
+	if note, ok := noteStore[k]; ok {
+		model = EditNote{note, k}
+	} else {
+		http.Error(rw, "Could not find the resource for edit.", http.StatusNotFound)
+		return
+	}
+	renderTemplate(rw, "edit", "base", model)
+
+}
+
+func updateNote(rw http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	k := vars["id"]
+	var noteToUpdate Note
+	if note, ok := noteStore[k]; ok {
+		r.ParseForm()
+		noteToUpdate.Title = r.PostFormValue("title")
+		noteToUpdate.Description = r.PostFormValue("description")
+		noteToUpdate.CreateOn = note.CreateOn
+		//delete existing note and add new one
+		delete(noteStore, k)
+		noteStore[k] = noteToUpdate
+	} else {
+		http.Error(rw, "Could not find the resource to update", http.StatusNotFound)
+		return
+	}
+	http.Redirect(rw, r, "/", 302)
+}
+
+func deleteNote(rw http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	k := vars["id"]
+	if _, ok := noteStore[k]; ok {
+		delete(noteStore, k)
+	} else {
+		http.Error(rw, "Could not find the resource to delete", http.StatusNotFound)
+		return
+	}
+	http.Redirect(rw, r, "/", 302)
+}
+
 func main() {
 	r := mux.NewRouter().StrictSlash(false)
-	fs := http.FileServer(http.Dir("public"))
-	r.Handle("/public", fs)
+	fs := http.FileServer(http.Dir("template"))
+	r.Handle("/template", fs)
 	r.HandleFunc("/", getNotes)
 	r.HandleFunc("/notes/add", addNote)
 	r.HandleFunc("/notes/save", saveNote)
-	// r.HandleFunc("/notes/edit/{id}", editNote)
-	// r.HandleFunc("/notes/update/{id}", updateNote)
-	// r.HandleFunc("/notes/delete/{id}", deleteNote)
+	r.HandleFunc("/notes/edit/{id}", editNote)
+	r.HandleFunc("/notes/update/{id}", updateNote)
+	r.HandleFunc("/notes/delete/{id}", deleteNote)
 
 	server := &http.Server{
 		Addr:    ":8080",
